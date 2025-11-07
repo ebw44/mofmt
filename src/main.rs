@@ -14,6 +14,7 @@ Options:
 -h, --help: display this message and exit
 -v, --version: display a version number and exit
 --check: run mofmt in check mode (without modifying the file)
+--line-length <N>: set maximum line length (disabled by default)
 "#;
 
 const EOL: &str = if cfg!(windows) { "\r\n" } else { "\n" };
@@ -29,22 +30,48 @@ fn main() {
     } else if ["-v", "--version"].contains(&args[1].as_str()) {
         println!("mofmt, {}", VERSION);
         std::process::exit(0);
-    } else if args[1].as_str() == "--check" {
-        if args.len() < 3 {
+    } else {
+        // Parse options
+        let mut check = false;
+        let mut line_length = None;
+        let mut i = 1;
+
+        while i < args.len() {
+            if args[i] == "--check" {
+                check = true;
+                i += 1;
+            } else if args[i] == "--line-length" {
+                if i + 1 >= args.len() {
+                    eprintln!("Missing value for --line-length argument.\n{}", HELP);
+                    std::process::exit(1);
+                }
+                match args[i + 1].parse::<usize>() {
+                    Ok(n) if n > 0 => line_length = Some(n),
+                    _ => {
+                        eprintln!("Invalid line length: '{}'. Must be a positive integer.\n{}", args[i + 1], HELP);
+                        std::process::exit(1);
+                    }
+                }
+                i += 2;
+            } else if args[i].starts_with('-') {
+                eprintln!("Unrecognized option: '{}'.\n{}", args[i], HELP);
+                std::process::exit(1);
+            } else {
+                break;
+            }
+        }
+
+        if i >= args.len() {
             eprintln!("Missing PATHS arguments.\n{}", HELP);
             std::process::exit(1);
         }
-        format_files(&args[2..], true);
-    } else if args[1].starts_with('-') {
-        eprintln!("Unrecognized option: '{}'.\n{}", args[1], HELP);
-        std::process::exit(1);
-    } else {
-        format_files(&args[1..], false);
+
+        format_files(&args[i..], check, line_length);
     }
 }
 
 /// Format files specified in the argument list
-fn format_files(args: &[String], check: bool) {
+fn format_files(args: &[String], check: bool, line_length: Option<usize>) {
     let mut code = 0;
     let mut files = Vec::new();
     let mut lock = stdout().lock();
@@ -76,7 +103,10 @@ fn format_files(args: &[String], check: bool) {
                     .unwrap();
                     code = 1;
                 } else {
-                    let output = parsed.pretty_print() + EOL;
+                    let output = match line_length {
+                        Some(len) => parsed.pretty_print_with_line_length(len),
+                        None => parsed.pretty_print(),
+                    } + EOL;
                     if check {
                         if output != parsed.tokens().code() {
                             code = 1;

@@ -2,9 +2,6 @@ use std::{iter::Peekable, vec::IntoIter};
 
 use crate::parser::*;
 
-/// Maximum line length for formatting
-const MAX_LINE_LENGTH: usize = 80;
-
 #[derive(PartialEq)]
 pub enum Marker {
     Token(TokenID),
@@ -23,8 +20,8 @@ enum Blank {
 }
 
 /// Return collection of markers that should be consumed to generate pretty printed string
-pub fn format(cst: &ModelicaCST) -> Vec<Marker> {
-    let mut f = Formatter::new(cst);
+pub fn format(cst: &ModelicaCST, max_line_length: Option<usize>) -> Vec<Marker> {
+    let mut f = Formatter::new(cst, max_line_length);
     match cst.kind(cst.root().unwrap()) {
         SyntaxKind::StoredDefinition => stored_definition(&mut f, cst.root().unwrap()),
         SyntaxKind::ClassDefinition => class_definition(&mut f, cst.root().unwrap()),
@@ -144,10 +141,11 @@ struct Formatter<'a> {
     prev_kind: TokenKind,
     prev_line: usize,
     prev_tok: TokenID,
+    max_line_length: Option<usize>,
 }
 
 impl<'a> Formatter<'a> {
-    fn new(cst: &'a ModelicaCST) -> Self {
+    fn new(cst: &'a ModelicaCST, max_line_length: Option<usize>) -> Self {
         Formatter {
             cst,
             markers: Vec::new(),
@@ -155,6 +153,7 @@ impl<'a> Formatter<'a> {
             prev_kind: TokenKind::Eof,
             prev_line: 1,
             prev_tok: cst.tokens().first(),
+            max_line_length,
         }
     }
 
@@ -187,7 +186,11 @@ impl<'a> Formatter<'a> {
 
     /// Check if tree should be multiline based on original formatting or line length
     fn should_be_multiline(&self, tree: TreeID) -> bool {
-        self.cst.is_multiline(tree) || (self.calculate_single_line_length(tree) > MAX_LINE_LENGTH)
+        if let Some(max_len) = self.max_line_length {
+            self.cst.is_multiline(tree) || (self.calculate_single_line_length(tree) > max_len)
+        } else {
+            self.cst.is_multiline(tree)
+        }
     }
 
     /// Insert whitespace or linebreak marker
